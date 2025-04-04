@@ -1,0 +1,313 @@
+---
+title: "exercise-10"
+format: html
+editor: visual
+---
+
+```{r}
+#load data
+library(tidyverse)
+f <- "https://raw.githubusercontent.com/difiore/ada-datasets/refs/heads/main/AVONETdataset1.csv"
+
+d <- read_csv(f, col_names = TRUE)
+names(d)
+```
+
+```{r}
+#select variables
+library(skimr)
+d <- d |> select(Species1, Family1, Order1,
+         Beak.Length_Culmen, Beak.Width, Beak.Depth,
+         Tarsus.Length, Wing.Length, Tail.Length, Mass,
+         Habitat, Migration, Trophic.Level, Trophic.Niche,
+         Min.Latitude, Max.Latitude, Centroid.Latitude,
+         Primary.Lifestyle, Range.Size)
+
+
+skim(d)
+```
+
+**Challenge 1**
+
+**Step 1**
+
+```{r}
+
+# Trophic Level boxplot
+
+cleaned_data_trophic <- d |> drop_na(Trophic.Level)
+
+ggplot(data = cleaned_data_trophic, aes(x = Trophic.Level, y = log(Mass))) +
+  geom_boxplot() +
+  labs(title = "Log(Mass) by Trophic Level")
+
+# Migration boxplot
+cleaned_data_migration <- d |>
+  drop_na(Migration) |>
+  mutate(Migration = as.factor(Migration))
+
+ggplot(data = cleaned_data_migration, aes(x = Migration, y = log(Mass))) +
+  geom_boxplot() +
+  labs(title = "Log(Mass) by Migration Type")
+
+```
+
+**Step 2**
+
+```{r}
+
+m1 <- lm(log(Mass) ~ Trophic.Level, data = cleaned_data_trophic)
+
+m2 <- lm(log(Mass) ~ Migration, data = cleaned_data_migration)
+
+summary(m1)
+summary(m2)
+
+```
+
+#Examine the output of the resultant linear models. Is log(**Mass**) associated with either **Trophic.Level** or **Migration** category? That is, in the global test of significance, is the F statistic large enough to reject the null hypothesis of an F value of zero?
+
+Since the F-statistic for the Trophic.Level model is 78.42 (p \< 2.2e-16), and for the Migration model is 144.5 (p \< 2.2e-16), there is strong statistical evidence that log(Mass) is associated with both Trophic.Level and Migration category. We reject the null hypothesis in both cases, concluding that variation in log(Mass) is significantly explained by these categorical variables.
+
+#There is no coefficient for Migration 1, which means that Migration =1 is the reference level. Each coefficient represents the difference in log(Mass) compared to Migration 1:
+
+Migration 2 is 0.76 higher in log(Mass) than Migration (p\<0.001)
+
+Migration 3 is 0.38 higher in log(Mass) than Migration 1 (p \< 0.001)
+
+Therefore, Migration 2 and Migration 3 are both significantly. different from Migration 1.
+
+**Step 3**
+
+```{r}
+#fit the anova model
+aov_migration <- aov(log(Mass) ~ Migration, data = cleaned_data_migration)
+
+#Tukey HSD
+tukey_result <- TukeyHSD(aov_migration)
+tukey_result
+
+```
+
+**Step 4**
+
+```{r}
+
+library(infer)
+
+# Clean and prepare data
+permutation_data <- d |>
+  drop_na(Trophic.Level, Mass) |>
+  mutate(log_mass = log(Mass))
+
+# Calculate observed F-statistic
+obs_fstat <- permutation_data |>
+  specify(log_mass ~ Trophic.Level) |>
+  calculate(stat = "F")
+
+# Generate null distribution
+permuted_F <- permutation_data |>
+  specify(log_mass ~ Trophic.Level) |>
+  hypothesize(null = "independence") |>
+  generate(reps = 1000, type = "permute") |>
+  calculate(stat = "F")
+
+permuted_F
+
+# Get p-value
+p_value <- get_p_value(permuted_F, obs_fstat, direction = "greater")
+
+
+p_value
+```
+
+**Challenge 2**
+
+```{r}
+library(tidyverse)
+
+# Re-load the full AVONET dataset
+f <- "https://raw.githubusercontent.com/difiore/ada-datasets/refs/heads/main/AVONETdataset1.csv"
+d <- read_csv(f)
+
+# Check names
+names(d)
+
+```
+
+**Step 1**
+
+```{r}
+#Adding log columns
+
+d <- d |>
+  mutate(log_mass = log(Mass),
+         log_beak = log(Beak.Length_Culmen),
+         log_tarsus = log(Tarsus.Length))
+
+#Fit linear models
+beak_model <- lm(log_beak ~ log_mass, data = d)
+tarsus_model <- lm(log_tarsus ~ log_mass, data = d)
+
+#Add residuals
+d <- d |>
+  mutate(relative_beak_length = resid(beak_model),
+         relative_tarsus_length = resid(tarsus_model))
+
+```
+
+**Step 2**
+
+```{r}
+# Boxplot/violin for relative tarsus 
+ggplot(d, aes(x = Primary.Lifestyle, y = relative_tarsus_length)) +
+  geom_violin() +
+  labs(title = "Relative Tarsus Length by Primary Lifestyle")
+
+# Boxplot/violin for relative beak 
+ggplot(subset(d, !is.na(Trophic.Niche)), aes(x = Trophic.Niche, y = relative_beak_length)) +
+  geom_violin() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Relative Beak Length by Trophic Niche")
+
+```
+
+**Step 3**
+
+```{r}
+
+# Clean data 
+migration_data <- d |>
+  drop_na(Migration, Range.Size) |>
+  mutate(Migration = as.factor(Migration),
+         log_range = log(Range.Size))
+
+# histogram
+hist(migration_data$Range.Size)
+hist(migration_data$log_range)
+
+# Fit model
+range_model <- lm(log_range ~ Migration, data = migration_data)
+summary(range_model)
+
+# ANOVA and Tukey HSD
+aov_range <- aov(log_range ~ Migration, data = migration_data)
+TukeyHSD(aov_range)
+
+```
+
+#The global linear model indicates a significant relationship between geographic range size and migration behavior. The model shows that range size varies systematically across migration categories, with a highly significant F-statistic (F = 520.3, p \< 2.2e-16). Migration behavior accounts for approximately 8.7% of the variation in log-transformed range size, suggesting that migratory strategy is an important predictor of the extent of a species’ geographic distribution.
+
+#Species in Migration category 2 had significantly larger ranges than those in category 1, with an estimated increase of 1.78 log-units. Species in category 3 also had significantly larger ranges than category 1, with an increase of 2.52 log-units . Also category 3 is significantly larger ranges than category 2 species, with mean difference 0.73. These results suggest that migratory behavior is positively associated with geographic range size.
+
+**Step 4**
+
+```{r}
+
+passeriformes <- d |> filter(Order1 == "Passeriformes")
+
+# relative beak length ~ Primary.Lifestyle
+ggplot(passeriformes, aes(x = Primary.Lifestyle, y = relative_beak_length)) +
+  geom_boxplot()
+
+model_lifestyle <- lm(relative_beak_length ~ Primary.Lifestyle, data = passeriformes)
+summary(model_lifestyle)
+
+# relative beak length ~ Trophic.Level
+ggplot(passeriformes, aes(x = Trophic.Level, y = relative_beak_length)) +
+  geom_boxplot()
+
+
+model_trophic <- lm(relative_beak_length ~ Trophic.Level, data = passeriformes)
+summary(model_trophic)
+
+# Combined boxplot
+
+ggplot(passeriformes, aes(x = Primary.Lifestyle, y = relative_beak_length, fill = Trophic.Level)) +
+  geom_boxplot(position = "dodge") +
+  labs(title = "Relative Beak Length by Lifestyle and Trophic Level")
+
+
+```
+
+\# The 1st linear model evaluated the effect of primary lifestyle on relative beak length in passeriform birds, using Aerial birds as the reference group. The results indicate that, on average, Generalist birds have a relative beak length that is 0.279 units longer than Aerial birds (p \< 2e-16), while Insessorial birds have a 0.353 unit longer relative beak length (p \< 2e-16), and Terrestrial birds have a 0.279 unit longer relative beak length (p \< 2e-16). All differences are highly statistically significant. The model explains approximately 5.6% of the variation in beak length (adjusted R-squared = 0.0554), suggesting that lifestyle is a modest but significant predictor of beak morphology.
+
+#The 2nd linear model assessed the association between relative beak length and trophic level in passeriform birds. Carnivores served as the reference group. On average, herbivorous birds had a significantly shorter relative beak length compared to carnivores, with a coefficient of -0.1187 (p \< 2e-16). Omnivores, on the other hand, had a significantly longer relative beak length than carnivores, with a coefficient of 0.0179 (p = 0.00675). The model explains approximately 5% of the variation in relative beak length (adjusted R-squared = 0.0497), indicating that trophic level has a modest but significant effect on beak morphology.
+
+**Step 5**
+
+```{r}
+
+model_two_factor <- lm(relative_beak_length ~ Primary.Lifestyle + Trophic.Level, data = passeriformes)
+summary(model_two_factor)
+
+
+```
+
+#The two-factor linear model indicates that both Primary.Lifestyle and Trophic.Level are significantly associated with relative beak length among passeriforms (F(5, 6608) = 163.4, p \< 2.2e-16). The model explains approximately 11% of the variance in relative beak length (Adjusted R² = 0.1093). Species with generalist, insessorial, and terrestrial lifestyles all had significantly longer relative beaks, with insessorial birds showing the largest increase. For trophic level omnivores showed a marginally non-significant difference.  
+
+**Step 6**
+
+```{r}
+model_interaction <- lm(relative_beak_length ~ Primary.Lifestyle + Trophic.Level + Primary.Lifestyle:Trophic.Level, data =passeriformes)
+summary(model_interaction)
+
+```
+
+#The interaction model reveals that relative beak length in passeriform birds is influenced by both Primary.Lifestyle and Trophic.Level, and that their effects are not purely additive (F(9, 6604) = 115.3, p \< 2.2e-16; Adjusted R² = 0.135). Generalist, insessorial, and terrestrial species had longer beaks than aerial species, and herbivores had shorter beaks than carnivores overall. Some interaction terms were not estimated due to missing combinations in the data, but overall, the model suggests a joint influence of lifestyle and trophic level on beak morphology.
+
+**Step 7**
+
+```{r}
+
+interaction.plot(x.factor = passeriformes$Primary.Lifestyle,
+                 trace.factor = passeriformes$Trophic.Level,
+                 response = passeriformes$relative_beak_length,
+                 fun = mean,
+                 ylab = "Mean Relative Beak Length",
+                 )
+
+```
+
+**Step 8**
+
+```{r}
+
+#check that variances are roughly equal (ratio of max/min <2)
+
+#Trophic.Level
+stats <- passeriformes |>
+  group_by(Trophic.Level) |>
+  summarise(sd_beak = sd(relative_beak_length, na.rm = TRUE))
+
+
+max(stats$sd_beak) / min(stats$sd_beak)
+stats
+
+#Primary lifestyle
+
+stats_P <-passeriformes |>
+  group_by(Primary.Lifestyle) |>
+  summarise(sd_beak = sd(relative_beak_length, na.rm = TRUE))
+
+max(stats_P$sd_beak) / min(stats_P$sd_beak)
+stats_P
+
+
+# Plot
+par(mfrow = c(1, 2))  
+
+#Check residuals vs fitted
+hist(residuals(model_trophic))
+hist(residuals(model_lifestyle))
+
+#Q-Q Plot
+plot(model_trophic, which = 2)  
+plot(model_lifestyle, which = 2)
+
+
+```
+
+#Based on the general rule of thumb, if the ratio of the maximum to minimum standard deviation is less than 2, the assumption of equal variances is usually considered reasonable.Therefore, both Trophic.Level and Primary.Lifestyle meet this assumption, with ratios of 1.34 and 1.24, respectively.
+
+#Histograms of residuals from both the Trophic.level and Primary.Lifestyle models showed approximately bell-shaped and symmetric distributions centered around zero. This visual evidence supports the assumption that residuals are normally.Additionally, Q-Q plots indicated that the residuals closely followed a straight line, with only minor deviations at the tails. 
